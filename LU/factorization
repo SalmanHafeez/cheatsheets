@@ -1,0 +1,121 @@
+import numpy as np
+def lu(A: np.ndarray):
+3
+n = A.shape[0]
+L = np.eye(n)
+U = A # Work directly on the same array
+for k in range(n - 1):
+if U[k, k] == 0.0:
+raise ZeroDivisionError("Zero pivot encountered.")
+for i in range(k + 1, n):
+L[i, k] = U[i, k] / U[k, k]
+U[i, k:] -= L[i, k] * U[k, k:]
+return L, U
+def plu(A: np.ndarray):
+n = A.shape[0]
+P = np.eye(n)
+L = np.zeros((n, n))
+U = A # Work directly on same matrix
+for k in range(n):
+pivot = k + np.argmax(np.abs(U[k:, k]))
+if np.isclose(U[pivot, k], 0.0):
+raise ZeroDivisionError("Matrix is singular.")
+if pivot != k:
+U[[k, pivot], :] = U[[pivot, k], :]
+P[[k, pivot], :] = P[[pivot, k], :]
+if k > 0:
+L[[k, pivot], :k] = L[[pivot, k], :k]
+L[k, k] = 1.0
+if k < n - 1:
+L[k+1:, k] = U[k+1:, k] / U[k, k]
+U[k+1:, k:] -= np.outer(L[k+1:, k], U[k, k:])
+return P, L, U
+
+import numpy as np
+from scipy.linalg import lu as scipy_lu # only for verification if needed
+eps = np.finfo(float).eps
+matrices_names = ["S", "G"]
+for name, A in zip(matrices_names, matrices):
+n = A.shape[0]
+# --- without pivoting ---
+A_lu = A.copy() # copy outside (not inside lu)
+L, U = lu(A_lu)
+rel_err_no_pivot = rel_error_norm(L @ U, A)
+growth_no_pivot = np.max(np.abs(U)) / np.max(np.abs(A))
+bound_no_pivot = n * eps * growth_no_pivot
+# --- with partial pivoting ---
+A_plu = A.copy() # copy outside (not inside plu)
+P, Lp, Up = plu(A_plu)
+rel_err_pivot = rel_error_norm(P @ A, Lp @ Up)
+growth_pivot = np.max(np.abs(Up)) / np.max(np.abs(A))
+bound_pivot = n * eps * growth_pivot
+print(f"\nMatrix {name} (n={n}):")
+print(" Without pivoting:")
+print(f" Relative error: {rel_err_no_pivot:.3e}")
+print(f" Growth factor: {growth_no_pivot:.3e}")
+print(f" Bound: {bound_no_pivot:.3e}")
+print(" With partial pivoting:")
+print(f" Relative error: {rel_err_pivot:.3e}")
+print(f" Growth factor: {growth_pivot:.3e}")
+print(f" Bound: {bound_pivot:.3e}")
+
+import numpy as np
+from scipy.linalg import solve_triangular, lu as scipy_lu
+# === LU-based solver without pivoting ===
+def linSolveLU(A: np.ndarray, b: np.ndarray):
+"""Solve A x = b using in-place LU factorization (no pivoting)."""
+# Perform in-place LU factorization (A is overwritten)
+L, U = lu(A)
+# Forward substitution: L y = b
+y = solve_triangular(L, b, lower=True, unit_diagonal=True)
+# Backward substitution: U x = y
+x = solve_triangular(U, y, lower=False)
+return x
+# === PLU-based solver with partial pivoting ===
+def linSolvePLU(A: np.ndarray, b: np.ndarray):
+"""Solve A x = b using in-place PLU factorization (partial pivoting)."""
+# Perform in-place PLU factorization
+P, L, U = plu(A)
+# Apply permutation: P A = L U  use Pb
+b_perm = P @ b
+# Forward substitution: L y = Pb
+y = solve_triangular(L, b_perm, lower=True, unit_diagonal=True)
+# Backward substitution: U x = y
+x = solve_triangular(U, y, lower=False)
+return x
+# === SciPy PLU-based solver ===
+def linSolveScipyPLU(A: np.ndarray, b: np.ndarray):
+"""Solve A x = b using SciPy's LU factorization (A = P L U)."""
+# SciPy's convention: A = P L U
+P, L, U = scipy_lu(A)
+# Apply transpose permutation: L U x = P^T b
+b_perm = P.T @ b
+# Forward substitution: L y = P^T b
+y = solve_triangular(L, b_perm, lower=True, unit_diagonal=True)
+# Backward substitution: U x = y
+7
+x = solve_triangular(U, y, lower=False)
+return x
+
+import numpy as np
+def rel_residual_norm(A, x, b):
+"""Compute relative residual ||Ax - b|| / ||b||."""
+return np.linalg.norm(A @ x - b) / np.linalg.norm(b)
+# Assume matrices S and G are already defined as numpy arrays
+matrices_names = ["S", "G"]
+solvers = {
+"LU (no pivot)": linSolveLU,
+"PLU (partial pivot)": linSolvePLU,
+"SciPy PLU": linSolveScipyPLU
+}
+for name, A in zip(matrices_names, matrices):
+n = A.shape[0]
+x_exact = np.ones(n)
+b = A @ x_exact # construct RHS so that true solution is [1,1,...,1]^T
+print(f"\nMatrix {name} (n={n}) — Relative Residuals:")
+for solver_name, solver in solvers.items():
+# Each solver overwrites A, so copy externally for fairness
+A_work = A.copy()
+x_computed = solver(A_work, b)
+r_rel = rel_residual_norm(A, x_computed, b)
+print(f" {solver_name:20s}: {r_rel:.3e}")
